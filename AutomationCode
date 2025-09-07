@@ -1,0 +1,156 @@
+// This project automates the creation of personalized Co-op Enrolment Confirmation letters directly from a Google Sheet using Google Apps Script. 
+// This project was developed as part of my summer job to streamline the process of generating personalized letters for my coworkers. \
+// To make the script understandable for non-technical users I added clear in-code comments indicating which parts of the script can and cannot be changed, 
+// making it easy for my coworkers to adapt without breaking the automation.
+
+// DO NOT CHANGE
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Automate')
+    .addItem('Generate Co-op Letter(s)', 'generateCoopLettersFromSelection')
+    .addToUi();
+}
+
+
+// DO NOT CHANGE
+function generateCoopLettersFromSelection() {
+  const ui = SpreadsheetApp.getUi();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const selection = sheet.getActiveRange();
+
+
+  if (!selection) {
+    ui.alert('Please select one or more rows containing student data.');
+    return;
+  }
+
+
+  const selectedRows = selection.getNumRows();
+  const startRow = selection.getRow();
+
+
+  // YOU CAN CHANGE — Update these Doc Template IDs if templates are updated
+  const doc1Id = '1qhtFQ4b2MqmsJ-RCqpGuCl5RaPWf_VNXCD-9jRMjxsc'; // With org & term
+  const doc2Id = '1tK7PYPcBXzhIo5MNHghYGVlKuOXzyeO9yb2q2NYRpQw'; // Basic version
+
+
+  // YOU CAN CHANGE — Update destination folder ID if letters should go elsewhere
+  const FOLDER_ID = '1yMsqkG9z8hpwCSoFLjroIPlPGWj9aGhY';
+
+
+  // DO NOT CHANGE
+  const response = ui.prompt(
+    'Which document(s) would you like to generate?',
+    'Enter:\n1 for Doc 1 (with organization & Combined Term)\n2 for Doc 2 (basic)\n3 for BOTH versions',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+
+  // DO NOT CHANGE
+  const choice = response.getResponseText().trim();
+  if (!['1', '2', '3'].includes(choice)) {
+    ui.alert("Invalid input. Please enter '1', '2', or '3'.");
+    return;
+  }
+
+
+  // DO NOT CHANGE
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+
+  // DO NOT CHANGE
+  const requiredCols = ['Doc 1 Link', 'Doc 2 Link', 'Generated At', 'Letter Type'];
+  const missingCols = requiredCols.filter(col => !headers.includes(col));
+  if (missingCols.length > 0) {
+    const lastCol = headers.length;
+    missingCols.forEach((col, i) => {
+      sheet.getRange(1, lastCol + 1 + i).setValue(col);
+    });
+  }
+
+
+  // DO NOT CHANGE
+  const updatedHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const doc1ColIndex = updatedHeaders.indexOf('Doc 1 Link') + 1;
+  const doc2ColIndex = updatedHeaders.indexOf('Doc 2 Link') + 1;
+  const timeColIndex = updatedHeaders.indexOf('Generated At') + 1;
+  const typeColIndex = updatedHeaders.indexOf('Letter Type') + 1;
+
+
+  // DO NOT CHANGE
+  for (let i = 0; i < selectedRows; i++) {
+    const rowIndex = startRow + i;
+    const rowData = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const data = {};
+    updatedHeaders.forEach((header, colIndex) => {
+      data[header.trim()] = rowData[colIndex];
+    });
+
+
+    // DO NOT CHANGE
+    const todayDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
+    const firstName = data['firstName']?.toString().trim();
+    const lastName = data['lastName']?.toString().trim();
+    const studentName = `${firstName} ${lastName}`;
+    const combinedTerm = data['combinedTerm'] || 'TBD';
+
+
+    // YOU CAN CHANGE — Add or modify template placeholders if needed
+    const replacements = {
+      '{{todayDate}}': todayDate,
+      '{{studentNumber}}': data['studentNumber'],
+      '{{studentName}}': studentName,
+      '{{academicProgram}}': data['academicProgram'],
+      '{{organization}}': data['organization'] || '',
+      '{{combinedTerm}}': combinedTerm
+    };
+
+
+    // DO NOT CHANGE
+    const templatesToUse = [];
+    if (choice === '1' || choice === '3') templatesToUse.push({ id: doc1Id, type: '1' });
+    if (choice === '2' || choice === '3') templatesToUse.push({ id: doc2Id, type: '2' });
+
+
+    // DO NOT CHANGE
+    for (const template of templatesToUse) {
+      const newFileName = `Co-op Enrolment Confirmation Letter - ${studentName}`;
+      const newFile = DriveApp.getFileById(template.id).makeCopy(newFileName, DriveApp.getFolderById(FOLDER_ID));
+      const newDoc = DocumentApp.openById(newFile.getId());
+      const body = newDoc.getBody();
+
+
+      // DO NOT CHANGE
+      for (const [key, value] of Object.entries(replacements)) {
+        body.replaceText(key, value);
+      }
+
+
+      // DO NOT CHANGE
+      newDoc.saveAndClose();
+      const docUrl = newDoc.getUrl();
+
+
+      // DO NOT CHANGE
+      if (template.type === '1') {
+        sheet.getRange(rowIndex, doc1ColIndex).setValue(docUrl);
+      } else if (template.type === '2') {
+        sheet.getRange(rowIndex, doc2ColIndex).setValue(docUrl);
+      }
+
+
+      const pdf = DriveApp.getFileById(newDoc.getId()).getAs(MimeType.PDF);
+      DriveApp.getFolderById(FOLDER_ID).createFile(pdf).setName(newFileName + '.pdf');
+    }
+
+
+    // DO NOT CHANGE
+    sheet.getRange(rowIndex, timeColIndex).setValue(new Date());
+    sheet.getRange(rowIndex, typeColIndex).setValue(choice);
+  }
+  // DO NOT CHANGE
+  ui.alert(`${selectedRows} student(s) processed. Letters and PDFs saved in your folder.`);
+}
+
+
